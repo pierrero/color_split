@@ -36,16 +36,11 @@ scale = st.slider("Réduction image pour clustering", 0.1, 1.0, 0.5)
 
 def decompose_image_3inks_quantized_auto_resize(image_rgb, ink1, ink2, ink3, n_colors=64, scale=0.5):
     # Créer une zone pour afficher la progression
-    progress_container = st.empty()
+    progress_text = st.empty()
     progress_bar = st.progress(0)
     timings = {}
-    progress_messages = []
     
-    def update_progress(message):
-        progress_messages.append(message)
-        progress_container.write("\n".join(progress_messages))
-    
-    update_progress("Début de la décomposition d'image...")
+    progress_text.text("Début de la décomposition d'image...")
     
     # Étape 1: Redimensionnement
     start_time = time.time()
@@ -54,14 +49,14 @@ def decompose_image_3inks_quantized_auto_resize(image_rgb, ink1, ink2, ink3, n_c
     w_small = int(W * scale)
     image_small = resize(image_rgb, (h_small, w_small), anti_aliasing=True)
     timings['redimensionnement'] = time.time() - start_time
-    update_progress(f"1. Redimensionnement: {timings['redimensionnement']:.4f} secondes")
+    progress_text.text(f"1. Redimensionnement: {timings['redimensionnement']:.4f} secondes")
     progress_bar.progress(0.1)
     
     # Étape 2: Aplatissement
     start_time = time.time()
     flat_small = image_small.reshape(-1, 3)
     timings['aplatissement'] = time.time() - start_time
-    update_progress(f"2. Aplatissement: {timings['aplatissement']:.4f} secondes")
+    progress_text.text(f"2. Aplatissement: {timings['aplatissement']:.4f} secondes")
     progress_bar.progress(0.2)
     
     # Étape 3: K-means clustering
@@ -69,14 +64,14 @@ def decompose_image_3inks_quantized_auto_resize(image_rgb, ink1, ink2, ink3, n_c
     kmeans = KMeans(n_clusters=n_colors, n_init=3, random_state=0).fit(flat_small)
     palette = kmeans.cluster_centers_
     timings['kmeans'] = time.time() - start_time
-    update_progress(f"3. K-means clustering: {timings['kmeans']:.4f} secondes")
+    progress_text.text(f"3. K-means clustering: {timings['kmeans']:.4f} secondes")
     progress_bar.progress(0.4)
     
     # Étape 4: Aplatissement de l'image complète
     start_time = time.time()
     flat_full = image_rgb.reshape(-1, 3)
     timings['aplatissement_complet'] = time.time() - start_time
-    update_progress(f"4. Aplatissement de l'image complète: {timings['aplatissement_complet']:.4f} secondes")
+    progress_text.text(f"4. Aplatissement de l'image complète: {timings['aplatissement_complet']:.4f} secondes")
     progress_bar.progress(0.5)
     
     # Étape 5: Recherche des plus proches voisins
@@ -85,14 +80,14 @@ def decompose_image_3inks_quantized_auto_resize(image_rgb, ink1, ink2, ink3, n_c
     _, indices = nn.kneighbors(flat_full)
     labels = indices.flatten().reshape(H, W)
     timings['nearest_neighbors'] = time.time() - start_time
-    update_progress(f"5. Recherche des plus proches voisins: {timings['nearest_neighbors']:.4f} secondes")
+    progress_text.text(f"5. Recherche des plus proches voisins: {timings['nearest_neighbors']:.4f} secondes")
     progress_bar.progress(0.6)
     
     # Étape 6: Création de la matrice A
     start_time = time.time()
     A = np.stack([ink1, ink2, ink3], axis=1)
     timings['creation_matrice_A'] = time.time() - start_time
-    update_progress(f"6. Création de la matrice A: {timings['creation_matrice_A']:.4f} secondes")
+    progress_text.text(f"6. Création de la matrice A: {timings['creation_matrice_A']:.4f} secondes")
     progress_bar.progress(0.7)
     
     # Étape 7: Création du dictionnaire lookup (décomposition des couleurs)
@@ -102,7 +97,7 @@ def decompose_image_3inks_quantized_auto_resize(image_rgb, ink1, ink2, ink3, n_c
         res = lsq_linear(A, 1 - color, bounds=(0, 1))
         lookup[idx] = res.x
     timings['decomposition_couleurs'] = time.time() - start_time
-    update_progress(f"7. Décomposition des couleurs: {timings['decomposition_couleurs']:.4f} secondes")
+    progress_text.text(f"7. Décomposition des couleurs: {timings['decomposition_couleurs']:.4f} secondes")
     progress_bar.progress(0.8)
     
     # Étape 8: Reconstruction de l'image (version optimisée)
@@ -112,7 +107,16 @@ def decompose_image_3inks_quantized_auto_resize(image_rgb, ink1, ink2, ink3, n_c
     gamma = np.zeros((H, W))
     reconstructed = np.zeros((H, W, 3))
     
+    # Créer une barre de progression spécifique pour la reconstruction
+    reconstruction_progress = st.progress(0)
+    reconstruction_status = st.empty()
+    
     for i in range(H):
+        # Mise à jour de la progression
+        progress = (i + 1) / H
+        reconstruction_progress.progress(progress)
+        reconstruction_status.text(f"Reconstruction : {progress*100:.1f}% ({i+1}/{H} lignes)")
+        
         for j in range(W):
             a, b, g = lookup[labels[i, j]]
             alpha[i, j] = a
@@ -120,13 +124,16 @@ def decompose_image_3inks_quantized_auto_resize(image_rgb, ink1, ink2, ink3, n_c
             gamma[i, j] = g
             reconstructed[i, j] = 1 - (a * ink1 + b * ink2 + g * ink3)
     
+    # Nettoyage des éléments de progression de la reconstruction
+    reconstruction_progress.empty()
+    reconstruction_status.empty()
+    
     timings['reconstruction'] = time.time() - start_time
-    update_progress(f"8. Reconstruction de l'image: {timings['reconstruction']:.4f} secondes")
+    progress_text.text(f"8. Reconstruction de l'image: {timings['reconstruction']:.4f} secondes")
     progress_bar.progress(0.9)
     
     # Temps total et résumé
     total_time = sum(timings.values())
-    update_progress(f"\nTemps total: {total_time:.4f} secondes")
     
     # Afficher les statistiques détaillées
     st.write("### Statistiques de traitement")
@@ -139,7 +146,7 @@ def decompose_image_3inks_quantized_auto_resize(image_rgb, ink1, ink2, ink3, n_c
         st.write(f"- {step}: {t:.4f} secondes ({percentage:.1f}%)")
     
     progress_bar.progress(1.0)
-    update_progress("Traitement terminé !")
+    progress_text.text("Traitement terminé !")
     
     return alpha, beta, gamma, reconstructed
 
