@@ -156,7 +156,25 @@ def render_layer(alpha, ink_rgb):
 if uploaded_file is not None:
     image = Image.open(uploaded_file).convert("RGB")
     image_np = np.asarray(image) / 255.0
-    st.image(image, caption="Image originale", use_container_width=True)
+    original_height, original_width = image_np.shape[:2]
+    
+    # Ajout du slider pour la hauteur
+    target_height = st.slider(
+        "Hauteur de l'image pour le traitement",
+        min_value=100,
+        max_value=original_height,
+        value=min(600, original_height),  # Valeur par défaut : 600px ou la hauteur originale si plus petite
+        step=50
+    )
+    
+    # Calcul de la largeur proportionnelle
+    target_width = int(original_width * (target_height / original_height))
+    
+    # Redimensionnement de l'image
+    if target_height != original_height:
+        image_np = resize(image_np, (target_height, target_width), anti_aliasing=True)
+    
+    st.image(image_np, caption=f"Image redimensionnée ({target_width}x{target_height})", use_container_width=True)
 
     if st.button("Lancer la décomposition"):
         alpha, beta, gamma, recon = decompose_image_3inks_quantized_auto_resize(
